@@ -4568,6 +4568,28 @@ export function TaskDetailSurface({ conversation, tasksTab }: { tasksTab?: TaskS
     ],
   );
 
+  const cancelIssueMonitor = useMutation({
+    mutationKey: ["cancel-issue-monitor", issueId],
+    mutationFn: async () => {
+      const current = await issuesApi.get(issueId!);
+      const { monitor: _monitor, ...policy } = current.executionPolicy ?? { mode: "normal" as const, commentRequired: true, stages: [] };
+      return issuesApi.update(current.id, {
+        expectedExecutionPolicy: current.executionPolicy ?? null,
+        executionPolicy: {
+          ...policy,
+          mode: policy.mode ?? "normal",
+          commentRequired: policy.commentRequired ?? true,
+          stages: policy.stages ?? [],
+        },
+      });
+    },
+    onSuccess: () => {
+      invalidateIssueDetail();
+      invalidateIssueRunState();
+      invalidateIssueCollections();
+    },
+  });
+
   const checkIssueMonitorNow = useMutation({
     mutationKey: ["check-issue-monitor-now", issueId],
     mutationFn: () => issuesApi.checkMonitorNow(issueId!),
@@ -7487,6 +7509,8 @@ export function TaskDetailSurface({ conversation, tasksTab }: { tasksTab?: TaskS
         : null}
 
       <IssueMonitorBanner
+        key={issue.id}
+        onCancelMonitor={() => cancelIssueMonitor.mutateAsync()}
         issue={issue}
         workProducts={workProducts}
         checkError={checkIssueMonitorNow.error?.message}

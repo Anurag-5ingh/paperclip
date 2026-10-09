@@ -13373,6 +13373,14 @@ export function issueRoutes(
     "/issues/:id",
     validateIssueMutationBody(updateIssueRouteSchema),
     async (req, res) => {
+      // Snapshot-guarded writes are policy-only. Do not admit task-control
+      // actions that can stop execution before the service takes its row lock.
+      if (req.body.expectedExecutionPolicy !== undefined && (
+        req.body.executionPolicy === undefined ||
+        Object.keys(req.body).some((key) => key !== "executionPolicy" && key !== "expectedExecutionPolicy")
+      )) {
+        throw unprocessable("expectedExecutionPolicy requires a policy-only update");
+      }
       const id = req.params.id as string;
       const existing = await getAccessibleResource(
         req,
@@ -13459,6 +13467,7 @@ export function issueRoutes(
         interrupt: interruptRequested,
         deferWakeForGoal,
         hiddenAt: hiddenAtRaw,
+        expectedExecutionPolicy,
         onBehalfOfUserId: _requestedOnBehalfOfUserId,
         ...updateFields
       } = req.body;
@@ -13856,6 +13865,13 @@ export function issueRoutes(
           lastDecisionId: decisionId,
         };
       }
+      if (expectedExecutionPolicy !== undefined && (
+        (transition.patch.status !== undefined && transition.patch.status !== existing.status) ||
+        (transition.patch.assigneeAgentId !== undefined && transition.patch.assigneeAgentId !== existing.assigneeAgentId) ||
+        (transition.patch.assigneeUserId !== undefined && transition.patch.assigneeUserId !== existing.assigneeUserId)
+      )) {
+        throw unprocessable("Snapshot-guarded policy updates cannot change task status or ownership");
+      }
       Object.assign(updateFields, transition.patch);
 
       const nextStatus = updateFields.status ?? existing.status;
@@ -14178,6 +14194,7 @@ export function issueRoutes(
       const postCommitIssueActions: IssuePostCommitAction[] = [];
       const issueUpdateData = {
         ...updateFields,
+        expectedExecutionPolicy,
         actorAgentId: actor.agentId ?? null,
         actorRunId: actor.agentId ? actor.runId : null,
         actorRunStopId: actor.agentId && interruptedRunId === actor.runId ? issueMutationStopId : null,
