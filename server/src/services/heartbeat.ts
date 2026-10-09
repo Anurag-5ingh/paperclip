@@ -290,6 +290,7 @@ import {
 } from "@paperclipai/shared";
 
 import { toolActionDeliveryService } from "./tool-action-delivery.js";
+import { githubBotConnectionIdsForRun } from "./chat-github-tools.js";
 
 import {
   isConversation,
@@ -3579,6 +3580,7 @@ export function heartbeatService(
           db,
           companyId: agent.companyId,
           issueId,
+          commentIds: extractWakeCommentIds(context),
         });
       const runScopedSkillKeys =
         acceptedPlanContinuationWake &&
@@ -6194,6 +6196,7 @@ export function heartbeatService(
                     initialCommunicationGuidance: nativeReviewRequest ? null : readNonEmptyString(context.paperclipTaskCommunicationGuidance),
                     wakePayload: context.paperclipWake,
                     turnContext: context.paperclipTurnContext,
+                    githubInstructionSkillKeys: runScopedMentionedSkillKeys,
                     resumedSession,
                     previousTurn: (() => {
                       if (!previousNativeRun || nativeReviewRequest) return null;
