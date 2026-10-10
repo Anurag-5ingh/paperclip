@@ -5,6 +5,7 @@ import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import test from "node:test";
+import { canaryStartup } from "./canary-startup-fixture.mjs";
 
 const repoRoot = path.resolve(
   path.dirname(fileURLToPath(import.meta.url)),
@@ -572,5 +573,96 @@ test("direct protocol concurrency override only lowers the configured ceiling", 
     });
     assert.equal(result.status, expected === null ? 1 : 0, requested);
     if (expected !== null) assert.equal(result.stdout, expected);
+  }
+});
+
+
+
+test("canary startup refreshes an incomplete dependency publication, then onboards once", async () => {
+  const result = await canaryStartup({ mode: "recover" });
+  assert.equal(result.code, 0, result.output);
+  const installs = result.calls.filter(call => call.kind === "npm");
+  const onboarding = result.calls.filter(call => call.kind === "onboard");
+  assert.equal(installs.length, 2);
+  assert.equal(onboarding.length, 1);
+  for (const call of installs) {
+    assert.equal(call.args[0], "install");
+    assert.ok(call.args.includes("paperclipai@2026.1009.0-canary.1"));
+    assert.ok(call.args.includes("--no-package-lock"));
+    assert.ok(call.args.includes("--no-save"));
+  }
+  assert.ok(!installs[0].args.includes("--prefer-online"));
+  assert.ok(installs[1].args.includes("--prefer-online"));
+  assert.notEqual(installs[0].args[2], installs[1].args[2]);
+  assert.equal(installs[0].cache, installs[1].cache);
+  assert.deepEqual(onboarding[0].args.slice(0, 3), ["onboard", "--yes", "--data-dir"]);
+});
+
+test("permanent missing versions stop after three attempts without onboarding", async () => {
+  const result = await canaryStartup({ mode: "permanent" });
+  assert.equal(result.code, 1);
+  assert.equal(result.calls.filter(call => call.kind === "npm").length, 3);
+  assert.equal(result.calls.filter(call => call.kind === "onboard").length, 0);
+  assert.match(result.output, /installation failed.*onboarding was not started/);
+});
+
+test("npm failures other than ETARGET fail immediately without onboarding", async () => {
+  const result = await canaryStartup({ mode: "auth" });
+  assert.equal(result.code, 1);
+  assert.equal(result.calls.length, 1);
+  assert.match(result.output, /E401/);
+});
+
+test("onboarding failures are never retried, even when they mention ETARGET", async () => {
+  const result = await canaryStartup({ mode: "success", onboard: "fail" });
+  assert.equal(result.code, 1);
+  assert.equal(result.calls.filter(call => call.kind === "npm").length, 1);
+  assert.equal(result.calls.filter(call => call.kind === "onboard").length, 1);
+  assert.match(result.output, /onboarding failed \(exit 17\)/);
+});
+
+test("a hanging npm install is stopped within the shared acquisition budget", async () => {
+  const result = await canaryStartup({ mode: "hang", budget: 1000 });
+  assert.equal(result.code, 1);
+  assert.equal(result.calls.filter(call => call.kind === "npm").length, 1);
+  assert.equal(result.calls.filter(call => call.kind === "onboard").length, 0);
+  assert.ok(result.elapsed < 4000, `install exceeded bounded cancellation: ${result.elapsed}ms`);
+  assert.match(result.output, /exceeded its startup budget/);
+});
+
+test("backoff consumes the shared budget and does not begin another install after expiry", async () => {
+  const result = await canaryStartup({ mode: "permanent", budget: 1000, delay: 5000 });
+  assert.equal(result.code, 1);
+  assert.equal(result.calls.length, 1);
+  assert.match(result.output, /exceeded its startup budget/);
+});
+
+
+test("Playwright cancellation stops an onboarding process without replay", async () => {
+  const result = await canaryStartup({ mode: "success", onboard: "hang", cancelAtKind: "onboard" });
+  assert.equal(result.code, 1);
+  assert.equal(result.calls.filter(call => call.kind === "npm").length, 1);
+  const onboarding = result.calls.filter(call => call.kind === "onboard");
+  assert.equal(onboarding.length, 1);
+  assert.throws(() => process.kill(onboarding[0].pid, 0), {code:"ESRCH"});
+  assert.match(result.output, /stopped by SIGTERM/);
+  assert.ok(result.elapsed < 2500, `onboarding cancellation took ${result.elapsed}ms`);
+});
+
+test("canary install retries retain the existing overall Playwright startup deadline", async () => {
+  const { INSTALL_BUDGET_MS } = await import("../../tests/canary-onboarding/start-published-canary.mjs");
+  const config = readFileSync(path.join(repoRoot, "tests/canary-onboarding/playwright.config.ts"), "utf8");
+  assert.equal(INSTALL_BUDGET_MS, 120_000);
+  assert.match(config, /timeout: 300_000/);
+  assert.match(config, /start-published-canary\.mjs/);
+  assert.match(config, /reuseExistingServer: false/);
+});
+
+
+test("nested ETARGET output does not retry a final authentication or network failure", async () => {
+  for (const mode of ["mixed", "network"]) {
+    const result = await canaryStartup({ mode });
+    assert.equal(result.code, 1);
+    assert.equal(result.calls.length, 1);
   }
 });
