@@ -10,6 +10,7 @@ import { issues, projects, projectWorkspaces } from "@paperclipai/db";
 import {
   findWorkspaceCommandDefinition,
   matchWorkspaceRuntimeServiceToCommand,
+  resolveRuntimeServiceStopTarget,
   reconcileExecutionWorkspaceBranchSchema,
   updateExecutionWorkspaceSchema,
   workspaceOverviewQuerySchema,
@@ -474,6 +475,12 @@ export function executionWorkspaceRoutes(db: Db, opts: { pluginWorkerManager?: P
       companyId: existing.companyId,
       executionWorkspaceId: existing.id,
     });
+    const stopTarget = resolveRuntimeServiceStopTarget({
+      workspaceRuntime: effectiveRuntimeConfig,
+      runtimeServiceId: selectedRuntimeServiceId,
+      serviceIndex: selectedServiceIndex,
+      runtimeServices: existing.runtimeServices,
+    });
     let runtimeServiceCount = existing.runtimeServices?.length ?? 0;
     let stdout = "";
     let stderr = "";
@@ -871,12 +878,14 @@ export function executionWorkspaceRoutes(db: Db, opts: { pluginWorkerManager?: P
             await reportRepairPhase(repairPhase, "failed");
             throw error;
           }
-        } else if (action === "stop" || action === "restart") {
+        } else if ((action === "stop" || action === "restart") && (stopTarget.scope === "all" || stopTarget.runtimeServiceId)) {
+          // A targeted stop or restart must leave the other services running.
+          // When the target has no running instance there is nothing to stop.
           await stopRuntimeServicesForExecutionWorkspace({
             db,
             executionWorkspaceId: existing.id,
             workspaceCwd,
-            runtimeServiceId: selectedRuntimeServiceId,
+            runtimeServiceId: stopTarget.scope === "one" ? stopTarget.runtimeServiceId : null,
           });
         }
 
@@ -925,7 +934,10 @@ export function executionWorkspaceRoutes(db: Db, opts: { pluginWorkerManager?: P
           }
           runtimeServiceCount = startedServices.length;
         } else if (action !== "repair") {
-          runtimeServiceCount = selectedRuntimeServiceId ? Math.max(0, (existing.runtimeServices?.length ?? 1) - 1) : 0;
+          const serviceCount = existing.runtimeServices?.length ?? 0;
+          runtimeServiceCount = stopTarget.scope === "all"
+            ? 0
+            : stopTarget.runtimeServiceId ? Math.max(0, serviceCount - 1) : serviceCount;
         }
 
         const currentDesiredState: WorkspaceRuntimeDesiredState =

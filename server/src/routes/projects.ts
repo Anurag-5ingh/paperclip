@@ -21,6 +21,7 @@ import {
   findWorkspaceCommandDefinition,
   isUuidLike,
   matchWorkspaceRuntimeServiceToCommand,
+  resolveRuntimeServiceStopTarget,
   normalizeProjectUrlKey,
   updateProjectSchema,
   updateProjectWorkspaceSchema,
@@ -779,6 +780,13 @@ export function projectRoutes(db: Db) {
       return;
     }
 
+    const stopTarget = resolveRuntimeServiceStopTarget({
+      workspaceRuntime: runtimeConfig,
+      runtimeServiceId: selectedRuntimeServiceId,
+      serviceIndex: selectedServiceIndex,
+      runtimeServices: workspace.runtimeServices,
+    });
+
     const actor = getActorInfo(req);
     const recorder = workspaceOperations.createRecorder({ companyId: project.companyId });
     let runtimeServiceCount = workspace.runtimeServices?.length ?? 0;
@@ -850,11 +858,13 @@ export function projectRoutes(db: Db) {
           else stderr = appendWithCap(stderr, chunk, WORKSPACE_CONTROL_OUTPUT_MAX_CHARS);
         };
 
-        if (action === "stop" || action === "restart") {
+        // A targeted stop or restart must leave the other services running. When
+        // the target has no running instance there is nothing to stop.
+        if ((action === "stop" || action === "restart") && (stopTarget.scope === "all" || stopTarget.runtimeServiceId)) {
           await stopRuntimeServicesForProjectWorkspace({
             db,
             projectWorkspaceId: workspace.id,
-            runtimeServiceId: selectedRuntimeServiceId,
+            runtimeServiceId: stopTarget.scope === "one" ? stopTarget.runtimeServiceId : null,
           });
         }
 
@@ -890,7 +900,10 @@ export function projectRoutes(db: Db) {
           });
           runtimeServiceCount = startedServices.length;
         } else {
-          runtimeServiceCount = selectedRuntimeServiceId ? Math.max(0, (workspace.runtimeServices?.length ?? 1) - 1) : 0;
+          const serviceCount = workspace.runtimeServices?.length ?? 0;
+          runtimeServiceCount = stopTarget.scope === "all"
+            ? 0
+            : stopTarget.runtimeServiceId ? Math.max(0, serviceCount - 1) : serviceCount;
         }
 
         const currentDesiredState: WorkspaceRuntimeDesiredState =
