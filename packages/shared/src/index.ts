@@ -1767,6 +1767,7 @@ export {
   listWorkspaceCommandDefinitions,
   listWorkspaceServiceCommandDefinitions,
   matchWorkspaceRuntimeServiceToCommand,
+  resolveRuntimeServiceStopTarget,
   scoreWorkspaceRuntimeServiceMatch,
 } from "./workspace-commands.js";
 
