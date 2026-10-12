@@ -3,6 +3,7 @@ import {
   findWorkspaceCommandDefinition,
   listWorkspaceCommandDefinitions,
   matchWorkspaceRuntimeServiceToCommand,
+  countRuntimeServicesActiveAfterStop,
   resolveRuntimeServiceStopTarget,
 } from "./workspace-commands.js";
 
@@ -227,6 +228,35 @@ describe("resolveRuntimeServiceStopTarget", () => {
     })).toEqual({ scope: "one", runtimeServiceId: null });
   });
 
+  it("does not stop another service that only shares the command", () => {
+    const sharedCommandRuntime = {
+      services: [
+        { name: "api", command: "node server.js", cwd: "api" },
+        { name: "admin", command: "node server.js", cwd: "admin" },
+      ],
+    };
+
+    expect(resolveRuntimeServiceStopTarget({
+      workspaceRuntime: sharedCommandRuntime,
+      runtimeServiceId: null,
+      serviceIndex: 1,
+      runtimeServices: [
+        { id: "runtime-api", serviceName: "api", command: "node server.js", cwd: "/repo/api", port: null },
+      ],
+    })).toEqual({ scope: "one", runtimeServiceId: null });
+  });
+
+  it("does not stop a service whose config index belongs to another service", () => {
+    expect(resolveRuntimeServiceStopTarget({
+      workspaceRuntime,
+      runtimeServiceId: null,
+      serviceIndex: 1,
+      runtimeServices: [
+        { id: "runtime-renamed", serviceName: "worker", command: "pnpm worker", cwd: "/repo", port: null, configIndex: 0 },
+      ],
+    })).toEqual({ scope: "one", runtimeServiceId: null });
+  });
+
   it("stops nothing when the given index has no configured service", () => {
     expect(resolveRuntimeServiceStopTarget({
       workspaceRuntime,
@@ -234,5 +264,26 @@ describe("resolveRuntimeServiceStopTarget", () => {
       serviceIndex: 5,
       runtimeServices,
     })).toEqual({ scope: "one", runtimeServiceId: null });
+  });
+});
+
+describe("countRuntimeServicesActiveAfterStop", () => {
+  const runtimeServices = [
+    { id: "runtime-web", status: "running" },
+    { id: "runtime-worker", status: "stopped" },
+    { id: "runtime-docs", status: "starting" },
+    { id: "runtime-old", status: "failed" },
+  ];
+
+  it("counts nothing after every service is stopped", () => {
+    expect(countRuntimeServicesActiveAfterStop(runtimeServices, { scope: "all" })).toBe(0);
+  });
+
+  it("counts the active services other than the stopped one", () => {
+    expect(countRuntimeServicesActiveAfterStop(runtimeServices, { scope: "one", runtimeServiceId: "runtime-web" })).toBe(1);
+  });
+
+  it("counts every active service when nothing was stopped", () => {
+    expect(countRuntimeServicesActiveAfterStop(runtimeServices, { scope: "one", runtimeServiceId: null })).toBe(2);
   });
 });

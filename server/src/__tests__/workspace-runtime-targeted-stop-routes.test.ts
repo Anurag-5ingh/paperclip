@@ -1,7 +1,7 @@
 import { sql } from "drizzle-orm";
 import express from "express";
 import request from "supertest";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 
 // A restart or stop that names one service must stop only that service. These
 // tests drive the project and execution workspace routes with two configured
@@ -45,6 +45,7 @@ const mockAccessService = vi.hoisted(() => ({
 const mockStartRuntimeServices = vi.hoisted(() => vi.fn(async () => []));
 const mockStopProjectRuntimeServices = vi.hoisted(() => vi.fn(async () => undefined));
 const mockStopExecutionRuntimeServices = vi.hoisted(() => vi.fn(async () => undefined));
+const mockLogActivity = vi.hoisted(() => vi.fn());
 
 vi.mock("../telemetry.js", () => ({ getTelemetryClient: vi.fn() }));
 
@@ -53,7 +54,7 @@ vi.mock("../services/index.js", () => ({
   environmentService: () => ({ getById: vi.fn(async () => null) }),
   executionWorkspaceService: () => mockExecutionWorkspaceService,
   heartbeatService: () => ({}),
-  logActivity: vi.fn(),
+  logActivity: mockLogActivity,
   projectService: () => mockProjectService,
   secretService: () => ({ normalizeEnvBindingsForPersistence: vi.fn() }),
   workspaceOperationService: () => mockWorkspaceOperationService,
@@ -188,6 +189,13 @@ async function createApp() {
 }
 
 describe("targeted runtime service stop and restart", () => {
+  let app: express.Express;
+
+  // Importing the route modules is slow, so build the app once.
+  beforeAll(async () => {
+    app = await createApp();
+  }, 60_000);
+
   beforeEach(() => {
     vi.clearAllMocks();
     mockStartRuntimeServices.mockResolvedValue([]);
@@ -206,7 +214,7 @@ describe("targeted runtime service stop and restart", () => {
 
     it("restarts the service at the given index without stopping the other one", async () => {
       useProject(runningServices);
-      const res = await request(await createApp()).post(`${url}/restart`).send({ serviceIndex: 1 });
+      const res = await request(app).post(`${url}/restart`).send({ serviceIndex: 1 });
 
       expect(res.status).toBe(200);
       expect(mockStopProjectRuntimeServices).toHaveBeenCalledTimes(1);
@@ -218,7 +226,7 @@ describe("targeted runtime service stop and restart", () => {
 
     it("stops only the service at the given index", async () => {
       useProject(runningServices);
-      const res = await request(await createApp()).post(`${url}/stop`).send({ serviceIndex: 0 });
+      const res = await request(app).post(`${url}/stop`).send({ serviceIndex: 0 });
 
       expect(res.status).toBe(200);
       expect(mockStopProjectRuntimeServices).toHaveBeenCalledTimes(1);
@@ -230,16 +238,49 @@ describe("targeted runtime service stop and restart", () => {
 
     it("stops nothing when the service at the given index is not running", async () => {
       useProject([runningServices[0]]);
-      const res = await request(await createApp()).post(`${url}/restart`).send({ serviceIndex: 1 });
+      const res = await request(app).post(`${url}/restart`).send({ serviceIndex: 1 });
 
       expect(res.status).toBe(200);
       expect(mockStopProjectRuntimeServices).not.toHaveBeenCalled();
       expect(mockStartRuntimeServices).toHaveBeenCalledWith(expect.objectContaining({ serviceIndex: 1 }));
     });
 
+    it("does not stop another running service that only shares the command", async () => {
+      const project = buildProject([buildRuntimeService("runtime-api", "api", "node server.js")]);
+      project.workspaces[0]!.runtimeConfig.workspaceRuntime = {
+        services: [
+          { name: "api", command: "node server.js" },
+          { name: "admin", command: "node server.js" },
+        ],
+      } as never;
+      mockProjectService.getById.mockResolvedValue(project);
+      mockProjectService.listWorkspaces.mockResolvedValue(project.workspaces);
+      const res = await request(app).post(`${url}/stop`).send({ serviceIndex: 1 });
+
+      expect(res.status).toBe(200);
+      expect(mockStopProjectRuntimeServices).not.toHaveBeenCalled();
+    });
+
+    it("counts only the services still running after a targeted stop", async () => {
+      useProject([...runningServices, { ...buildRuntimeService("runtime-old", "old", "pnpm old"), status: "stopped" }]);
+      const res = await request(app).post(`${url}/stop`).send({ serviceIndex: 0 });
+
+      expect(res.status).toBe(200);
+      expect(mockStopProjectRuntimeServices).toHaveBeenCalledWith(
+        expect.objectContaining({ runtimeServiceId: "runtime-web" }),
+      );
+      expect(mockLogActivity).toHaveBeenCalledWith(
+        expect.anything(),
+        expect.objectContaining({
+          action: "project.workspace_runtime_stop",
+          details: expect.objectContaining({ runtimeServiceCount: 1 }),
+        }),
+      );
+    });
+
     it("restarts every service when the request names no target", async () => {
       useProject(runningServices);
-      const res = await request(await createApp()).post(`${url}/restart`).send({});
+      const res = await request(app).post(`${url}/restart`).send({});
 
       expect(res.status).toBe(200);
       expect(mockStopProjectRuntimeServices).toHaveBeenCalledWith(
@@ -253,7 +294,7 @@ describe("targeted runtime service stop and restart", () => {
 
     it("restarts the service at the given index without stopping the other one", async () => {
       mockExecutionWorkspaceService.getById.mockResolvedValue(buildExecutionWorkspace(runningServices));
-      const res = await request(await createApp()).post(`${url}/restart`).send({ serviceIndex: 1 });
+      const res = await request(app).post(`${url}/restart`).send({ serviceIndex: 1 });
 
       expect(res.status).toBe(200);
       expect(mockStopExecutionRuntimeServices).toHaveBeenCalledTimes(1);
@@ -265,7 +306,7 @@ describe("targeted runtime service stop and restart", () => {
 
     it("stops only the service at the given index", async () => {
       mockExecutionWorkspaceService.getById.mockResolvedValue(buildExecutionWorkspace(runningServices));
-      const res = await request(await createApp()).post(`${url}/stop`).send({ serviceIndex: 0 });
+      const res = await request(app).post(`${url}/stop`).send({ serviceIndex: 0 });
 
       expect(res.status).toBe(200);
       expect(mockStopExecutionRuntimeServices).toHaveBeenCalledTimes(1);
@@ -276,7 +317,7 @@ describe("targeted runtime service stop and restart", () => {
 
     it("stops nothing when the service at the given index is not running", async () => {
       mockExecutionWorkspaceService.getById.mockResolvedValue(buildExecutionWorkspace([runningServices[0]]));
-      const res = await request(await createApp()).post(`${url}/restart`).send({ serviceIndex: 1 });
+      const res = await request(app).post(`${url}/restart`).send({ serviceIndex: 1 });
 
       expect(res.status).toBe(200);
       expect(mockStopExecutionRuntimeServices).not.toHaveBeenCalled();
@@ -285,7 +326,7 @@ describe("targeted runtime service stop and restart", () => {
 
     it("restarts every service when the request names no target", async () => {
       mockExecutionWorkspaceService.getById.mockResolvedValue(buildExecutionWorkspace(runningServices));
-      const res = await request(await createApp()).post(`${url}/restart`).send({});
+      const res = await request(app).post(`${url}/restart`).send({});
 
       expect(res.status).toBe(200);
       expect(mockStopExecutionRuntimeServices).toHaveBeenCalledWith(

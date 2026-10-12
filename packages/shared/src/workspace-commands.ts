@@ -258,6 +258,33 @@ export function resolveRuntimeServiceStopTarget<T extends WorkspaceRuntimeServic
   if (input.serviceIndex === null || input.serviceIndex === undefined) return { scope: "all" };
   const command = listWorkspaceServiceCommandDefinitions(input.workspaceRuntime)
     .find((entry) => entry.serviceIndex === input.serviceIndex);
-  const runtimeService = command ? matchWorkspaceRuntimeServiceToCommand(command, input.runtimeServices) : null;
+  if (!command) return { scope: "one", runtimeServiceId: null };
+  // Stopping is destructive, so a shared command alone is not enough: the
+  // running instance must carry this service's config index or, when it has
+  // none, this service's name. Otherwise another service could be stopped.
+  const candidates = (input.runtimeServices ?? []).filter((service) =>
+    service.configIndex !== null && service.configIndex !== undefined
+      ? service.configIndex === command.serviceIndex
+      : service.serviceName === command.name,
+  );
+  const runtimeService = matchWorkspaceRuntimeServiceToCommand(command, candidates);
   return { scope: "one", runtimeServiceId: runtimeService?.id ?? null };
+}
+
+const ACTIVE_RUNTIME_SERVICE_STATUSES = new Set(["provisioning", "starting", "running"]);
+
+/**
+ * Counts the runtime services that are still active after a stop resolved by
+ * `resolveRuntimeServiceStopTarget`. Services that were already stopped are
+ * not counted.
+ */
+export function countRuntimeServicesActiveAfterStop(
+  runtimeServices: Array<{ id: string; status?: string | null }> | null | undefined,
+  stopTarget: { scope: "all" } | { scope: "one"; runtimeServiceId: string | null },
+): number {
+  if (stopTarget.scope === "all") return 0;
+  return (runtimeServices ?? []).filter((service) =>
+    service.id !== stopTarget.runtimeServiceId
+    && ACTIVE_RUNTIME_SERVICE_STATUSES.has(service.status ?? ""),
+  ).length;
 }

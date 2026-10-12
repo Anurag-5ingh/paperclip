@@ -22,6 +22,7 @@ import {
   isUuidLike,
   matchWorkspaceRuntimeServiceToCommand,
   resolveRuntimeServiceStopTarget,
+  countRuntimeServicesActiveAfterStop,
   normalizeProjectUrlKey,
   updateProjectSchema,
   updateProjectWorkspaceSchema,
@@ -900,10 +901,7 @@ export function projectRoutes(db: Db) {
           });
           runtimeServiceCount = startedServices.length;
         } else {
-          const serviceCount = workspace.runtimeServices?.length ?? 0;
-          runtimeServiceCount = stopTarget.scope === "all"
-            ? 0
-            : stopTarget.runtimeServiceId ? Math.max(0, serviceCount - 1) : serviceCount;
+          runtimeServiceCount = countRuntimeServicesActiveAfterStop(workspace.runtimeServices, stopTarget);
         }
 
         const currentDesiredState: WorkspaceRuntimeDesiredState =

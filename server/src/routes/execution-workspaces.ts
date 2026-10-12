@@ -11,6 +11,7 @@ import {
   findWorkspaceCommandDefinition,
   matchWorkspaceRuntimeServiceToCommand,
   resolveRuntimeServiceStopTarget,
+  countRuntimeServicesActiveAfterStop,
   reconcileExecutionWorkspaceBranchSchema,
   updateExecutionWorkspaceSchema,
   workspaceOverviewQuerySchema,
@@ -934,10 +935,7 @@ export function executionWorkspaceRoutes(db: Db, opts: { pluginWorkerManager?: P
           }
           runtimeServiceCount = startedServices.length;
         } else if (action !== "repair") {
-          const serviceCount = existing.runtimeServices?.length ?? 0;
-          runtimeServiceCount = stopTarget.scope === "all"
-            ? 0
-            : stopTarget.runtimeServiceId ? Math.max(0, serviceCount - 1) : serviceCount;
+          runtimeServiceCount = countRuntimeServicesActiveAfterStop(existing.runtimeServices, stopTarget);
         }
 
         const currentDesiredState: WorkspaceRuntimeDesiredState =
