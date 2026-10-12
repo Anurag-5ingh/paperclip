@@ -254,7 +254,37 @@ describe("resolveRuntimeServiceStopTarget", () => {
       runtimeServices: [
         { id: "runtime-dev", serviceName: "service", command: "pnpm dev", cwd: "/repo", port: null },
       ],
+      workspaceCwd: "/repo",
     })).toEqual({ scope: "one", runtimeServiceId: "runtime-dev" });
+  });
+
+  it("does not stop an unnamed service in a subfolder for an unnamed service at the workspace root", () => {
+    expect(resolveRuntimeServiceStopTarget({
+      workspaceRuntime: {
+        services: [
+          { command: "node server.js", cwd: "api" },
+          { command: "node server.js" },
+        ],
+      },
+      runtimeServiceId: null,
+      serviceIndex: 1,
+      runtimeServices: [
+        { id: "runtime-api", serviceName: "service", command: "node server.js", cwd: "/repo/api", port: null },
+      ],
+      workspaceCwd: "/repo",
+    })).toEqual({ scope: "one", runtimeServiceId: null });
+  });
+
+  it("stops an unnamed service whose configured cwd resolves to its running folder", () => {
+    expect(resolveRuntimeServiceStopTarget({
+      workspaceRuntime: { services: [{ command: "node server.js", cwd: "./api/" }] },
+      runtimeServiceId: null,
+      serviceIndex: 0,
+      runtimeServices: [
+        { id: "runtime-api", serviceName: "service", command: "node server.js", cwd: "/repo/api", port: null },
+      ],
+      workspaceCwd: "/repo",
+    })).toEqual({ scope: "one", runtimeServiceId: "runtime-api" });
   });
 
   it("does not stop another unnamed service that runs in a different cwd", () => {
@@ -270,7 +300,63 @@ describe("resolveRuntimeServiceStopTarget", () => {
       runtimeServices: [
         { id: "runtime-api", serviceName: "service", command: "node server.js", cwd: "/repo/api", port: null },
       ],
+      workspaceCwd: "/repo",
     })).toEqual({ scope: "one", runtimeServiceId: null });
+  });
+
+  it("stops a lone unnamed service without needing the workspace cwd", () => {
+    expect(resolveRuntimeServiceStopTarget({
+      workspaceRuntime: { services: [{ name: "web", command: "pnpm dev" }, { command: "pnpm worker" }] },
+      runtimeServiceId: null,
+      serviceIndex: 1,
+      runtimeServices: [
+        { id: "runtime-worker", serviceName: "service", command: "pnpm worker", cwd: "/repo", port: null },
+      ],
+    })).toEqual({ scope: "one", runtimeServiceId: "runtime-worker" });
+  });
+
+  it("does not stop a service whose name only equals another service's fallback label", () => {
+    expect(resolveRuntimeServiceStopTarget({
+      workspaceRuntime: {
+        services: [
+          { name: "Service 2", command: "node server.js" },
+          { command: "node server.js" },
+        ],
+      },
+      runtimeServiceId: null,
+      serviceIndex: 1,
+      runtimeServices: [
+        { id: "runtime-named", serviceName: "Service 2", command: "node server.js", cwd: "/repo", port: null },
+      ],
+      workspaceCwd: "/repo",
+    })).toEqual({ scope: "one", runtimeServiceId: null });
+  });
+
+  it("tells apart services that share an explicit name by their cwd", () => {
+    const sharedNameRuntime = {
+      services: [
+        { name: "web", command: "pnpm dev", cwd: "site" },
+        { name: "web", command: "pnpm dev", cwd: "docs" },
+      ],
+    };
+    const runtimeServices = [
+      { id: "runtime-site", serviceName: "web", command: "pnpm dev", cwd: "/repo/site", port: null },
+    ];
+
+    expect(resolveRuntimeServiceStopTarget({
+      workspaceRuntime: sharedNameRuntime,
+      runtimeServiceId: null,
+      serviceIndex: 1,
+      runtimeServices,
+      workspaceCwd: "/repo",
+    })).toEqual({ scope: "one", runtimeServiceId: null });
+    expect(resolveRuntimeServiceStopTarget({
+      workspaceRuntime: sharedNameRuntime,
+      runtimeServiceId: null,
+      serviceIndex: 0,
+      runtimeServices,
+      workspaceCwd: "/repo",
+    })).toEqual({ scope: "one", runtimeServiceId: "runtime-site" });
   });
 
   it("does not stop a service whose config index belongs to another service", () => {

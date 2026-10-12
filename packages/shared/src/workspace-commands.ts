@@ -248,32 +248,65 @@ export function matchWorkspaceRuntimeServiceToCommand<
  * running instance, or null when it has none, so nothing is stopped. A
  * request with no target stops every service (`scope: "all"`).
  */
+function normalizePosixPath(value: string): string | null {
+  if (!value.startsWith("/")) return null;
+  const segments: string[] = [];
+  for (const segment of value.split("/")) {
+    if (segment === "" || segment === ".") continue;
+    if (segment === "..") segments.pop();
+    else segments.push(segment);
+  }
+  return `/${segments.join("/")}`;
+}
+
+/**
+ * Resolves a configured service cwd against the workspace cwd the way the
+ * start path does, defaulting to the workspace root. Returns null for a cwd
+ * that cannot be resolved here, such as a template or a home-relative path.
+ */
+function resolveConfiguredServiceCwd(configuredCwd: string | null, workspaceCwd: string | null | undefined) {
+  const cwd = configuredCwd ?? ".";
+  if (cwd.includes("{{") || cwd.startsWith("~")) return null;
+  if (cwd.startsWith("/")) return normalizePosixPath(cwd);
+  if (!workspaceCwd) return null;
+  return normalizePosixPath(`${workspaceCwd}/${cwd}`);
+}
+
+function runtimeServiceNameForCommand(command: Pick<WorkspaceCommandDefinition, "rawConfig">) {
+  const rawName = command.rawConfig.name;
+  return typeof rawName === "string" && rawName.length > 0 ? rawName : "service";
+}
+
 export function resolveRuntimeServiceStopTarget<T extends WorkspaceRuntimeServiceMatchCandidate & { id: string }>(input: {
   workspaceRuntime: Record<string, unknown> | null | undefined;
   runtimeServiceId: string | null | undefined;
   serviceIndex: number | null | undefined;
   runtimeServices: T[] | null | undefined;
+  workspaceCwd?: string | null;
 }): { scope: "all" } | { scope: "one"; runtimeServiceId: string | null } {
   if (input.runtimeServiceId) return { scope: "one", runtimeServiceId: input.runtimeServiceId };
   if (input.serviceIndex === null || input.serviceIndex === undefined) return { scope: "all" };
-  const command = listWorkspaceServiceCommandDefinitions(input.workspaceRuntime)
-    .find((entry) => entry.serviceIndex === input.serviceIndex);
-  if (!command) return { scope: "one", runtimeServiceId: null };
   // Stopping is destructive, so a shared command alone is not enough: the
   // running instance must carry this service's config index or, when it has
-  // none, this service's name. Otherwise another service could be stopped.
-  // The start path names a service from its raw `name`, or "service" when it
-  // has none, so unnamed services must also agree on the configured cwd.
-  const rawName = command.rawConfig.name;
-  const runtimeName = typeof rawName === "string" && rawName.length > 0 ? rawName : "service";
+  // none, the name the start path gives it (its raw `name`, or "service" when
+  // it has none). When that name does not identify one configured service,
+  // the instance must also run in the resolved configured cwd, which defaults
+  // to the workspace root. Otherwise another service could be stopped.
+  const serviceCommands = listWorkspaceServiceCommandDefinitions(input.workspaceRuntime);
+  const command = serviceCommands.find((entry) => entry.serviceIndex === input.serviceIndex);
+  if (!command) return { scope: "one", runtimeServiceId: null };
+  const runtimeName = runtimeServiceNameForCommand(command);
+  const nameIsShared = serviceCommands.some((entry) =>
+    entry.serviceIndex !== command.serviceIndex && runtimeServiceNameForCommand(entry) === runtimeName,
+  );
+  const expectedCwd = nameIsShared ? resolveConfiguredServiceCwd(command.cwd, input.workspaceCwd) : null;
   const candidates = (input.runtimeServices ?? []).filter((service) => {
     if (service.configIndex !== null && service.configIndex !== undefined) {
       return service.configIndex === command.serviceIndex;
     }
-    if (service.serviceName === command.name) return true;
     if (service.serviceName !== runtimeName) return false;
-    if (runtimeName !== "service" || !command.cwd || !service.cwd) return true;
-    return service.cwd === command.cwd || service.cwd.endsWith(`/${command.cwd}`);
+    if (!nameIsShared) return true;
+    return Boolean(expectedCwd && service.cwd && normalizePosixPath(service.cwd) === expectedCwd);
   });
   const runtimeService = matchWorkspaceRuntimeServiceToCommand(command, candidates);
   return { scope: "one", runtimeServiceId: runtimeService?.id ?? null };

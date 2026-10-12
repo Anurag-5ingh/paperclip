@@ -276,6 +276,24 @@ describe("targeted runtime service stop and restart", () => {
       );
     });
 
+    it("does not stop an unnamed service in a subfolder for an unnamed service at the workspace root", async () => {
+      const project = buildProject([
+        { ...buildRuntimeService("runtime-api", "service", "node server.js"), cwd: "/tmp/targeted-stop-workspace/api" },
+      ]);
+      project.workspaces[0]!.runtimeConfig.workspaceRuntime = {
+        services: [
+          { command: "node server.js", cwd: "api" },
+          { command: "node server.js" },
+        ],
+      } as never;
+      mockProjectService.getById.mockResolvedValue(project);
+      mockProjectService.listWorkspaces.mockResolvedValue(project.workspaces);
+      const res = await request(app).post(`${url}/restart`).send({ serviceIndex: 1 });
+
+      expect(res.status).toBe(200);
+      expect(mockStopProjectRuntimeServices).not.toHaveBeenCalled();
+    });
+
     it("counts only the services still running after a targeted stop", async () => {
       useProject([...runningServices, { ...buildRuntimeService("runtime-old", "old", "pnpm old"), status: "stopped" }]);
       const res = await request(app).post(`${url}/stop`).send({ serviceIndex: 0 });

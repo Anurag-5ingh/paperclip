@@ -481,6 +481,7 @@ export function executionWorkspaceRoutes(db: Db, opts: { pluginWorkerManager?: P
       runtimeServiceId: selectedRuntimeServiceId,
       serviceIndex: selectedServiceIndex,
       runtimeServices: existing.runtimeServices,
+      workspaceCwd,
     });
     let runtimeServiceCount = existing.runtimeServices?.length ?? 0;
     let stdout = "";

@@ -786,6 +786,7 @@ export function projectRoutes(db: Db) {
       runtimeServiceId: selectedRuntimeServiceId,
       serviceIndex: selectedServiceIndex,
       runtimeServices: workspace.runtimeServices,
+      workspaceCwd,
     });
 
     const actor = getActorInfo(req);
