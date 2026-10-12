@@ -246,6 +246,33 @@ describe("resolveRuntimeServiceStopTarget", () => {
     })).toEqual({ scope: "one", runtimeServiceId: null });
   });
 
+  it("stops an unnamed service by the name the start path gives it", () => {
+    expect(resolveRuntimeServiceStopTarget({
+      workspaceRuntime: { services: [{ command: "pnpm dev" }] },
+      runtimeServiceId: null,
+      serviceIndex: 0,
+      runtimeServices: [
+        { id: "runtime-dev", serviceName: "service", command: "pnpm dev", cwd: "/repo", port: null },
+      ],
+    })).toEqual({ scope: "one", runtimeServiceId: "runtime-dev" });
+  });
+
+  it("does not stop another unnamed service that runs in a different cwd", () => {
+    expect(resolveRuntimeServiceStopTarget({
+      workspaceRuntime: {
+        services: [
+          { command: "node server.js", cwd: "api" },
+          { command: "node server.js", cwd: "admin" },
+        ],
+      },
+      runtimeServiceId: null,
+      serviceIndex: 1,
+      runtimeServices: [
+        { id: "runtime-api", serviceName: "service", command: "node server.js", cwd: "/repo/api", port: null },
+      ],
+    })).toEqual({ scope: "one", runtimeServiceId: null });
+  });
+
   it("does not stop a service whose config index belongs to another service", () => {
     expect(resolveRuntimeServiceStopTarget({
       workspaceRuntime,

@@ -262,11 +262,19 @@ export function resolveRuntimeServiceStopTarget<T extends WorkspaceRuntimeServic
   // Stopping is destructive, so a shared command alone is not enough: the
   // running instance must carry this service's config index or, when it has
   // none, this service's name. Otherwise another service could be stopped.
-  const candidates = (input.runtimeServices ?? []).filter((service) =>
-    service.configIndex !== null && service.configIndex !== undefined
-      ? service.configIndex === command.serviceIndex
-      : service.serviceName === command.name,
-  );
+  // The start path names a service from its raw `name`, or "service" when it
+  // has none, so unnamed services must also agree on the configured cwd.
+  const rawName = command.rawConfig.name;
+  const runtimeName = typeof rawName === "string" && rawName.length > 0 ? rawName : "service";
+  const candidates = (input.runtimeServices ?? []).filter((service) => {
+    if (service.configIndex !== null && service.configIndex !== undefined) {
+      return service.configIndex === command.serviceIndex;
+    }
+    if (service.serviceName === command.name) return true;
+    if (service.serviceName !== runtimeName) return false;
+    if (runtimeName !== "service" || !command.cwd || !service.cwd) return true;
+    return service.cwd === command.cwd || service.cwd.endsWith(`/${command.cwd}`);
+  });
   const runtimeService = matchWorkspaceRuntimeServiceToCommand(command, candidates);
   return { scope: "one", runtimeServiceId: runtimeService?.id ?? null };
 }

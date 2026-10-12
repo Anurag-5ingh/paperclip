@@ -261,6 +261,21 @@ describe("targeted runtime service stop and restart", () => {
       expect(mockStopProjectRuntimeServices).not.toHaveBeenCalled();
     });
 
+    it("stops an unnamed service by its index", async () => {
+      const project = buildProject([buildRuntimeService("runtime-dev", "service", "pnpm dev")]);
+      project.workspaces[0]!.runtimeConfig.workspaceRuntime = {
+        services: [{ command: "pnpm dev" }],
+      } as never;
+      mockProjectService.getById.mockResolvedValue(project);
+      mockProjectService.listWorkspaces.mockResolvedValue(project.workspaces);
+      const res = await request(app).post(`${url}/stop`).send({ serviceIndex: 0 });
+
+      expect(res.status).toBe(200);
+      expect(mockStopProjectRuntimeServices).toHaveBeenCalledWith(
+        expect.objectContaining({ runtimeServiceId: "runtime-dev" }),
+      );
+    });
+
     it("counts only the services still running after a targeted stop", async () => {
       useProject([...runningServices, { ...buildRuntimeService("runtime-old", "old", "pnpm old"), status: "stopped" }]);
       const res = await request(app).post(`${url}/stop`).send({ serviceIndex: 0 });
