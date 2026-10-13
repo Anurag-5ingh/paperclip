@@ -270,6 +270,23 @@ describe("composer assignee picker", () => {
     expect(exactIdButton()?.disabled).toBe(false);
   });
 
+  it("still rejects spaces in OpenRouter model IDs", async () => {
+    const openrouterAgent = { ...agent, adapterType: "opencode_local", adapterConfig: { model: "openrouter/anthropic/claude-sonnet" } } as unknown as Agent;
+    render(vi.fn(), vi.fn(), false, {
+      agents: new Map([[openrouterAgent.id, openrouterAgent]]),
+      settings: { model: "openrouter/anthropic/claude-sonnet", effort: null, fast: false },
+    });
+    await click("Select model and effort");
+    await click("Choose exact model");
+
+    await typeModelSearch("openrouter/anthropic/Claude Sonnet 5.5");
+    expect(exactIdButton()?.disabled).toBe(true);
+    expect(document.body.textContent).toContain("Use openrouter/provider/model with no spaces.");
+
+    await typeModelSearch("openrouter/anthropic/claude-sonnet-5.5");
+    expect(exactIdButton()?.disabled).toBe(false);
+  });
+
   it("offers the Codex CLI catalog instead of unrelated OpenAI API models", async () => {
     vi.spyOn(agentsApi, "adapterModels").mockResolvedValueOnce([
       { id: "gpt-6-sol", label: "GPT-6 Sol" },
