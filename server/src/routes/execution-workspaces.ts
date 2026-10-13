@@ -43,6 +43,7 @@ import {
   cleanupExecutionWorkspaceArtifacts,
   ensurePersistedExecutionWorkspaceAvailable,
   listConfiguredRuntimeServiceEntries,
+  resolveRuntimeServiceCwdForControl,
   runWorkspaceJobForControl,
   startRuntimeServicesForWorkspaceControl,
   stopRuntimeServicesForExecutionWorkspace,
@@ -482,6 +483,27 @@ export function executionWorkspaceRoutes(db: Db, opts: { pluginWorkerManager?: P
       serviceIndex: selectedServiceIndex,
       runtimeServices: existing.runtimeServices,
       workspaceCwd,
+      // Resolve each service cwd with the same inputs the start below uses,
+      // matching the workspace that ensurePersistedExecutionWorkspaceAvailable
+      // realizes, without provisioning it.
+      resolveServiceCwd: (command) => resolveRuntimeServiceCwdForControl({
+        service: command.rawConfig,
+        workspace: {
+          cwd: workspaceCwd,
+          branchName: existing.branchName ?? null,
+          worktreePath: existing.strategyType === "git_worktree" ? (existing.providerRef ?? workspaceCwd) : null,
+          repoUrl: existing.repoUrl,
+          repoRef: existing.baseRef,
+        },
+        agent: {
+          id: actor.agentId ?? null,
+          name: actor.actorType === "user" ? "Board" : "Agent",
+          companyId: existing.companyId,
+        },
+        issue: existing.sourceIssueId
+          ? { id: existing.sourceIssueId, identifier: null, title: existing.name }
+          : null,
+      }),
     });
     let runtimeServiceCount = existing.runtimeServices?.length ?? 0;
     let stdout = "";

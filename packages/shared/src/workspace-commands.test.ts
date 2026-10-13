@@ -359,6 +359,34 @@ describe("resolveRuntimeServiceStopTarget", () => {
     })).toEqual({ scope: "one", runtimeServiceId: "runtime-site" });
   });
 
+  it("compares cwds with the caller's resolver when one is given", () => {
+    const sharedNameRuntime = {
+      services: [
+        { name: "web", command: "pnpm dev", cwd: "~/site" },
+        { name: "web", command: "pnpm dev", cwd: "~/docs" },
+      ],
+    };
+    const runtimeServices = [
+      { id: "runtime-site", serviceName: "web", command: "pnpm dev", cwd: "/home/dev/site", port: null },
+    ];
+    const resolveServiceCwd = (command: { cwd: string | null }) => command.cwd?.replace("~", "/home/dev") ?? null;
+
+    expect(resolveRuntimeServiceStopTarget({
+      workspaceRuntime: sharedNameRuntime,
+      runtimeServiceId: null,
+      serviceIndex: 0,
+      runtimeServices,
+      resolveServiceCwd,
+    })).toEqual({ scope: "one", runtimeServiceId: "runtime-site" });
+    expect(resolveRuntimeServiceStopTarget({
+      workspaceRuntime: sharedNameRuntime,
+      runtimeServiceId: null,
+      serviceIndex: 1,
+      runtimeServices,
+      resolveServiceCwd,
+    })).toEqual({ scope: "one", runtimeServiceId: null });
+  });
+
   it("does not stop a service whose config index belongs to another service", () => {
     expect(resolveRuntimeServiceStopTarget({
       workspaceRuntime,

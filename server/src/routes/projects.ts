@@ -40,6 +40,7 @@ import { ensureProjectAccessMember } from "../services/projects.js";
 import {
   buildWorkspaceRuntimeDesiredStatePatch,
   listConfiguredRuntimeServiceEntries,
+  resolveRuntimeServiceCwdForControl,
   runWorkspaceJobForControl,
   startRuntimeServicesForWorkspaceControl,
   stopRuntimeServicesForProjectWorkspace,
@@ -781,15 +782,32 @@ export function projectRoutes(db: Db) {
       return;
     }
 
+    const actor = getActorInfo(req);
     const stopTarget = resolveRuntimeServiceStopTarget({
       workspaceRuntime: runtimeConfig,
       runtimeServiceId: selectedRuntimeServiceId,
       serviceIndex: selectedServiceIndex,
       runtimeServices: workspace.runtimeServices,
       workspaceCwd,
+      // Resolve each service cwd with the same inputs the start below uses.
+      resolveServiceCwd: (command) => resolveRuntimeServiceCwdForControl({
+        service: command.rawConfig,
+        workspace: {
+          cwd: workspaceCwd,
+          branchName: workspace.defaultRef ?? workspace.repoRef ?? null,
+          worktreePath: null,
+          repoUrl: workspace.repoUrl,
+          repoRef: workspace.repoRef,
+        },
+        agent: {
+          id: actor.agentId ?? null,
+          name: actor.actorType === "user" ? "Board" : "Agent",
+          companyId: project.companyId,
+        },
+        issue: null,
+      }),
     });
 
-    const actor = getActorInfo(req);
     const recorder = workspaceOperations.createRecorder({ companyId: project.companyId });
     let runtimeServiceCount = workspace.runtimeServices?.length ?? 0;
     let stdout = "";

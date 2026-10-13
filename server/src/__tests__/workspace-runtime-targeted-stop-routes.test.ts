@@ -1,3 +1,5 @@
+import os from "node:os";
+import path from "node:path";
 import { sql } from "drizzle-orm";
 import express from "express";
 import request from "supertest";
@@ -294,6 +296,53 @@ describe("targeted runtime service stop and restart", () => {
       expect(mockStopProjectRuntimeServices).not.toHaveBeenCalled();
     });
 
+    function useProjectWithSharedName(services: unknown[], runtimeServices: unknown[]) {
+      const project = buildProject(runtimeServices);
+      project.workspaces[0]!.runtimeConfig.workspaceRuntime = { services } as never;
+      mockProjectService.getById.mockResolvedValue(project);
+      mockProjectService.listWorkspaces.mockResolvedValue(project.workspaces);
+    }
+
+    it("tells apart services that share a name by their home-relative cwd", async () => {
+      useProjectWithSharedName(
+        [
+          { name: "web", command: "pnpm dev", cwd: "~/site" },
+          { name: "web", command: "pnpm dev", cwd: "~/docs" },
+        ],
+        [{ ...buildRuntimeService("runtime-site", "web", "pnpm dev"), cwd: path.join(os.homedir(), "site") }],
+      );
+
+      const otherRes = await request(app).post(`${url}/stop`).send({ serviceIndex: 1 });
+      expect(otherRes.status).toBe(200);
+      expect(mockStopProjectRuntimeServices).not.toHaveBeenCalled();
+
+      const res = await request(app).post(`${url}/stop`).send({ serviceIndex: 0 });
+      expect(res.status).toBe(200);
+      expect(mockStopProjectRuntimeServices).toHaveBeenCalledWith(
+        expect.objectContaining({ runtimeServiceId: "runtime-site" }),
+      );
+    });
+
+    it("tells apart services that share a name by their templated cwd", async () => {
+      useProjectWithSharedName(
+        [
+          { name: "web", command: "pnpm dev", cwd: "{{workspace.cwd}}/site" },
+          { name: "web", command: "pnpm dev", cwd: "{{workspace.cwd}}/docs" },
+        ],
+        [{ ...buildRuntimeService("runtime-docs", "web", "pnpm dev"), cwd: "/tmp/targeted-stop-workspace/docs" }],
+      );
+
+      const otherRes = await request(app).post(`${url}/stop`).send({ serviceIndex: 0 });
+      expect(otherRes.status).toBe(200);
+      expect(mockStopProjectRuntimeServices).not.toHaveBeenCalled();
+
+      const res = await request(app).post(`${url}/stop`).send({ serviceIndex: 1 });
+      expect(res.status).toBe(200);
+      expect(mockStopProjectRuntimeServices).toHaveBeenCalledWith(
+        expect.objectContaining({ runtimeServiceId: "runtime-docs" }),
+      );
+    });
+
     it("counts only the services still running after a targeted stop", async () => {
       useProject([...runningServices, { ...buildRuntimeService("runtime-old", "old", "pnpm old"), status: "stopped" }]);
       const res = await request(app).post(`${url}/stop`).send({ serviceIndex: 0 });
@@ -355,6 +404,31 @@ describe("targeted runtime service stop and restart", () => {
       expect(res.status).toBe(200);
       expect(mockStopExecutionRuntimeServices).not.toHaveBeenCalled();
       expect(mockStartRuntimeServices).toHaveBeenCalledWith(expect.objectContaining({ serviceIndex: 1 }));
+    });
+
+    it("tells apart services that share a name by their home-relative cwd", async () => {
+      const workspace = buildExecutionWorkspace([
+        { ...buildRuntimeService("runtime-site", "web", "pnpm dev"), cwd: path.join(os.homedir(), "site") },
+      ]);
+      workspace.config = {
+        workspaceRuntime: {
+          services: [
+            { name: "web", command: "pnpm dev", cwd: "~/site" },
+            { name: "web", command: "pnpm dev", cwd: "~/docs" },
+          ],
+        },
+      } as never;
+      mockExecutionWorkspaceService.getById.mockResolvedValue(workspace);
+
+      const otherRes = await request(app).post(`${url}/restart`).send({ serviceIndex: 1 });
+      expect(otherRes.status).toBe(200);
+      expect(mockStopExecutionRuntimeServices).not.toHaveBeenCalled();
+
+      const res = await request(app).post(`${url}/restart`).send({ serviceIndex: 0 });
+      expect(res.status).toBe(200);
+      expect(mockStopExecutionRuntimeServices).toHaveBeenCalledWith(
+        expect.objectContaining({ runtimeServiceId: "runtime-site" }),
+      );
     });
 
     it("restarts every service when the request names no target", async () => {
