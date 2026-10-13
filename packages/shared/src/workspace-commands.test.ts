@@ -304,6 +304,25 @@ describe("resolveRuntimeServiceStopTarget", () => {
     })).toEqual({ scope: "one", runtimeServiceId: null });
   });
 
+  it("stops nothing when another service with the same name could have started the instance", () => {
+    for (const serviceIndex of [0, 1]) {
+      expect(resolveRuntimeServiceStopTarget({
+        workspaceRuntime: {
+          services: [
+            { name: "web", command: "pnpm dev", cwd: "site", env: { MODE: "a" } },
+            { name: "web", command: "pnpm dev", cwd: "site", env: { MODE: "b" } },
+          ],
+        },
+        runtimeServiceId: null,
+        serviceIndex,
+        runtimeServices: [
+          { id: "runtime-site", serviceName: "web", command: "pnpm dev", cwd: "/repo/site", port: null },
+        ],
+        workspaceCwd: "/repo",
+      })).toEqual({ scope: "one", runtimeServiceId: null });
+    }
+  });
+
   it("stops a lone unnamed service without needing the workspace cwd", () => {
     expect(resolveRuntimeServiceStopTarget({
       workspaceRuntime: { services: [{ name: "web", command: "pnpm dev" }, { command: "pnpm worker" }] },

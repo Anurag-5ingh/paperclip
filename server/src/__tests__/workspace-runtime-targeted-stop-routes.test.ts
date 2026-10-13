@@ -371,6 +371,22 @@ describe("targeted runtime service stop and restart", () => {
       );
     });
 
+    it("does not stop an instance that another service with the same name could have started", async () => {
+      useProjectWithSharedName(
+        [
+          { name: "web", command: "pnpm dev", port: { type: "auto" }, cwd: "{{workspace.cwd}}/{{port}}", env: { MODE: "a" } },
+          { name: "web", command: "pnpm dev", port: { type: "auto" }, cwd: "{{workspace.cwd}}/{{port}}", env: { MODE: "b" } },
+        ],
+        [{ ...buildRuntimeService("runtime-b", "web", "pnpm dev"), cwd: "/tmp/targeted-stop-workspace/41235", port: 41235 }],
+      );
+
+      for (const serviceIndex of [0, 1]) {
+        const res = await request(app).post(`${url}/restart`).send({ serviceIndex });
+        expect(res.status).toBe(200);
+      }
+      expect(mockStopProjectRuntimeServices).not.toHaveBeenCalled();
+    });
+
     it("counts only the services still running after a targeted stop", async () => {
       useProject([...runningServices, { ...buildRuntimeService("runtime-old", "old", "pnpm old"), status: "stopped" }]);
       const res = await request(app).post(`${url}/stop`).send({ serviceIndex: 0 });

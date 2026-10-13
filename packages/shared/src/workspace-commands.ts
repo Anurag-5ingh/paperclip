@@ -319,23 +319,35 @@ export function resolveRuntimeServiceStopTarget<T extends WorkspaceRuntimeServic
   // none, the name the start path gives it (its raw `name`, or "service" when
   // it has none). When that name does not identify one configured service,
   // the instance must also run in the resolved configured cwd, which defaults
-  // to the workspace root. Otherwise another service could be stopped.
+  // to the workspace root, and no other service with that name may match it.
+  // Otherwise another service could be stopped.
   const serviceCommands = listWorkspaceServiceCommandDefinitions(input.workspaceRuntime);
   const command = serviceCommands.find((entry) => entry.serviceIndex === input.serviceIndex);
   if (!command) return { scope: "one", runtimeServiceId: null };
   const runtimeName = runtimeServiceNameForCommand(command);
-  const nameIsShared = serviceCommands.some((entry) =>
+  const otherCommandsWithName = serviceCommands.filter((entry) =>
     entry.serviceIndex !== command.serviceIndex && runtimeServiceNameForCommand(entry) === runtimeName,
   );
+  // Whether starting `entry` could have produced `service`: the command and a
+  // fixed port must agree, an auto port is always assigned, and the cwd must
+  // resolve to the one the instance runs in.
+  const couldHaveStarted = (entry: WorkspaceCommandDefinition, service: T) => {
+    if (!service.cwd || scoreWorkspaceRuntimeServiceMatch(entry, { ...service, configIndex: null }) < 0) return false;
+    if (isRecord(entry.rawConfig.port) && entry.rawConfig.port.type === "auto" && service.port == null) return false;
+    const expectedCwd = resolveExpectedServiceCwd(entry, service, input);
+    return Boolean(expectedCwd && sameCwd(service.cwd, expectedCwd));
+  };
   const candidates = (input.runtimeServices ?? []).filter((service) => {
     if (service.configIndex !== null && service.configIndex !== undefined) {
       return service.configIndex === command.serviceIndex;
     }
     if (service.serviceName !== runtimeName) return false;
-    if (!nameIsShared) return true;
-    if (!service.cwd) return false;
-    const expectedCwd = resolveExpectedServiceCwd(command, service, input);
-    return Boolean(expectedCwd && sameCwd(service.cwd, expectedCwd));
+    if (otherCommandsWithName.length === 0) return true;
+    // When another configured service could also have started this instance
+    // (for example it differs only in env), the match is ambiguous, so leave
+    // the instance alone.
+    return couldHaveStarted(command, service)
+      && !otherCommandsWithName.some((entry) => couldHaveStarted(entry, service));
   });
   const runtimeService = matchWorkspaceRuntimeServiceToCommand(command, candidates);
   return { scope: "one", runtimeServiceId: runtimeService?.id ?? null };
