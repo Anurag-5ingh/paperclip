@@ -343,6 +343,34 @@ describe("targeted runtime service stop and restart", () => {
       );
     });
 
+    it("resolves a cwd that uses the assigned port with the running service's port", async () => {
+      useProjectWithSharedName(
+        [
+          { name: "web", command: "pnpm dev", port: { type: "auto" }, cwd: "{{workspace.cwd}}/{{port}}" },
+          { name: "web", command: "pnpm dev" },
+        ],
+        [
+          { ...buildRuntimeService("runtime-auto", "web", "pnpm dev"), cwd: "/tmp/targeted-stop-workspace/41234", port: 41234 },
+          buildRuntimeService("runtime-root", "web", "pnpm dev"),
+        ],
+      );
+
+      const res = await request(app).post(`${url}/stop`).send({ serviceIndex: 0 });
+      expect(res.status).toBe(200);
+      expect(mockStopProjectRuntimeServices).toHaveBeenCalledTimes(1);
+      expect(mockStopProjectRuntimeServices).toHaveBeenCalledWith(
+        expect.objectContaining({ runtimeServiceId: "runtime-auto" }),
+      );
+
+      mockStopProjectRuntimeServices.mockClear();
+      const rootRes = await request(app).post(`${url}/stop`).send({ serviceIndex: 1 });
+      expect(rootRes.status).toBe(200);
+      expect(mockStopProjectRuntimeServices).toHaveBeenCalledTimes(1);
+      expect(mockStopProjectRuntimeServices).toHaveBeenCalledWith(
+        expect.objectContaining({ runtimeServiceId: "runtime-root" }),
+      );
+    });
+
     it("counts only the services still running after a targeted stop", async () => {
       useProject([...runningServices, { ...buildRuntimeService("runtime-old", "old", "pnpm old"), status: "stopped" }]);
       const res = await request(app).post(`${url}/stop`).send({ serviceIndex: 0 });

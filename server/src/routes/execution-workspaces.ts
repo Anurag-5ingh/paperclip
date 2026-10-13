@@ -486,8 +486,9 @@ export function executionWorkspaceRoutes(db: Db, opts: { pluginWorkerManager?: P
       // Resolve each service cwd with the same inputs the start below uses,
       // matching the workspace that ensurePersistedExecutionWorkspaceAvailable
       // realizes, without provisioning it.
-      resolveServiceCwd: (command) => resolveRuntimeServiceCwdForControl({
+      resolveServiceCwd: (command, runtimeService) => resolveRuntimeServiceCwdForControl({
         service: command.rawConfig,
+        runningPort: runtimeService.port ?? null,
         workspace: {
           cwd: workspaceCwd,
           branchName: existing.branchName ?? null,

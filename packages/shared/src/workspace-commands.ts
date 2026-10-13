@@ -272,16 +272,17 @@ function resolveConfiguredServiceCwd(configuredCwd: string | null, workspaceCwd:
   return normalizePosixPath(`${workspaceCwd}/${cwd}`);
 }
 
-function resolveExpectedServiceCwd(
+function resolveExpectedServiceCwd<T>(
   command: WorkspaceCommandDefinition,
+  runtimeService: T,
   input: {
     workspaceCwd?: string | null;
-    resolveServiceCwd?: (command: WorkspaceCommandDefinition) => string | null;
+    resolveServiceCwd?: (command: WorkspaceCommandDefinition, runtimeService: T) => string | null;
   },
 ) {
   if (!input.resolveServiceCwd) return resolveConfiguredServiceCwd(command.cwd, input.workspaceCwd);
   try {
-    return input.resolveServiceCwd(command);
+    return input.resolveServiceCwd(command, runtimeService);
   } catch {
     return null;
   }
@@ -303,11 +304,13 @@ export function resolveRuntimeServiceStopTarget<T extends WorkspaceRuntimeServic
   runtimeServices: T[] | null | undefined;
   workspaceCwd?: string | null;
   /**
-   * Resolves the cwd a configured service runs in, exactly as the start path
-   * does. Servers pass this so `~` and templated cwds compare correctly; without
-   * it, only plain and workspace-relative cwds can be compared.
+   * Resolves the cwd a configured service runs in when started as the given
+   * running instance (for example with its assigned port), exactly as the
+   * start path does. Servers pass this so `~` and templated cwds compare
+   * correctly; without it, only plain and workspace-relative cwds can be
+   * compared.
    */
-  resolveServiceCwd?: (command: WorkspaceCommandDefinition) => string | null;
+  resolveServiceCwd?: (command: WorkspaceCommandDefinition, runtimeService: T) => string | null;
 }): { scope: "all" } | { scope: "one"; runtimeServiceId: string | null } {
   if (input.runtimeServiceId) return { scope: "one", runtimeServiceId: input.runtimeServiceId };
   if (input.serviceIndex === null || input.serviceIndex === undefined) return { scope: "all" };
@@ -324,14 +327,15 @@ export function resolveRuntimeServiceStopTarget<T extends WorkspaceRuntimeServic
   const nameIsShared = serviceCommands.some((entry) =>
     entry.serviceIndex !== command.serviceIndex && runtimeServiceNameForCommand(entry) === runtimeName,
   );
-  const expectedCwd = nameIsShared ? resolveExpectedServiceCwd(command, input) : null;
   const candidates = (input.runtimeServices ?? []).filter((service) => {
     if (service.configIndex !== null && service.configIndex !== undefined) {
       return service.configIndex === command.serviceIndex;
     }
     if (service.serviceName !== runtimeName) return false;
     if (!nameIsShared) return true;
-    return Boolean(expectedCwd && service.cwd && sameCwd(service.cwd, expectedCwd));
+    if (!service.cwd) return false;
+    const expectedCwd = resolveExpectedServiceCwd(command, service, input);
+    return Boolean(expectedCwd && sameCwd(service.cwd, expectedCwd));
   });
   const runtimeService = matchWorkspaceRuntimeServiceToCommand(command, candidates);
   return { scope: "one", runtimeServiceId: runtimeService?.id ?? null };

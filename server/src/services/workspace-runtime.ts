@@ -5060,6 +5060,11 @@ export function resolveRuntimeServiceCwdForControl(input: {
   agent: ExecutionWorkspaceAgentRef;
   issue: ExecutionWorkspaceIssueRef | null;
   adapterEnv?: Record<string, string>;
+  /**
+   * The port recorded on the running instance. The start path renders the cwd
+   * with the port it assigned, so pass it when comparing with that instance.
+   */
+  runningPort?: number | null;
 }) {
   const portConfig = parseObject(input.service.port);
   const explicitPort = asNumber(portConfig.value, asNumber(input.service.port, 0));
@@ -5068,7 +5073,7 @@ export function resolveRuntimeServiceCwdForControl(input: {
     agent: input.agent,
     issue: input.issue,
     adapterEnv: input.adapterEnv ?? {},
-    port: explicitPort > 0 ? explicitPort : null,
+    port: input.runningPort !== undefined ? input.runningPort : explicitPort > 0 ? explicitPort : null,
   });
   return resolveRuntimeServiceCwd(input.service, templateData, input.workspace.cwd);
 }

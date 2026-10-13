@@ -790,8 +790,9 @@ export function projectRoutes(db: Db) {
       runtimeServices: workspace.runtimeServices,
       workspaceCwd,
       // Resolve each service cwd with the same inputs the start below uses.
-      resolveServiceCwd: (command) => resolveRuntimeServiceCwdForControl({
+      resolveServiceCwd: (command, runtimeService) => resolveRuntimeServiceCwdForControl({
         service: command.rawConfig,
+        runningPort: runtimeService.port ?? null,
         workspace: {
           cwd: workspaceCwd,
           branchName: workspace.defaultRef ?? workspace.repoRef ?? null,
