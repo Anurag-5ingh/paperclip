@@ -315,9 +315,8 @@ export function resolveRuntimeServiceStopTarget<T extends WorkspaceRuntimeServic
   if (input.runtimeServiceId) return { scope: "one", runtimeServiceId: input.runtimeServiceId };
   if (input.serviceIndex === null || input.serviceIndex === undefined) return { scope: "all" };
   // Stopping is destructive, so a shared command alone is not enough: the
-  // running instance must carry this service's config index or, when it has
-  // none, the name the start path gives it (its raw `name`, or "service" when
-  // it has none). When that name does not identify one configured service,
+  // running instance must carry the name the start path gives this service
+  // (its raw `name`, or "service" when it has none). When that name does not identify one configured service,
   // the instance must also run in the resolved configured cwd, which defaults
   // to the workspace root, and no other service with that name may match it.
   // Otherwise another service could be stopped.
@@ -337,10 +336,9 @@ export function resolveRuntimeServiceStopTarget<T extends WorkspaceRuntimeServic
     const expectedCwd = resolveExpectedServiceCwd(entry, service, input);
     return Boolean(expectedCwd && sameCwd(service.cwd, expectedCwd));
   };
+  // A running instance's `configIndex` is not stored: read models infer it
+  // with a matcher that accepts a shared command, so it is not trusted here.
   const candidates = (input.runtimeServices ?? []).filter((service) => {
-    if (service.configIndex !== null && service.configIndex !== undefined) {
-      return service.configIndex === command.serviceIndex;
-    }
     if (service.serviceName !== runtimeName) return false;
     if (otherCommandsWithName.length === 0) return true;
     // When another configured service could also have started this instance
@@ -349,7 +347,10 @@ export function resolveRuntimeServiceStopTarget<T extends WorkspaceRuntimeServic
     return couldHaveStarted(command, service)
       && !otherCommandsWithName.some((entry) => couldHaveStarted(entry, service));
   });
-  const runtimeService = matchWorkspaceRuntimeServiceToCommand(command, candidates);
+  const runtimeService = matchWorkspaceRuntimeServiceToCommand(
+    command,
+    candidates.map((service) => ({ ...service, configIndex: null })),
+  );
   return { scope: "one", runtimeServiceId: runtimeService?.id ?? null };
 }
 

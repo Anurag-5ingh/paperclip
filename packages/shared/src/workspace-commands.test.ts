@@ -406,15 +406,31 @@ describe("resolveRuntimeServiceStopTarget", () => {
     })).toEqual({ scope: "one", runtimeServiceId: null });
   });
 
-  it("does not stop a service whose config index belongs to another service", () => {
+  it("does not trust an inferred config index that names another service", () => {
+    // Read models infer configIndex with a matcher that accepts a shared
+    // command, so the running `admin` instance can carry the index of `api`.
+    const sharedCommandRuntime = {
+      services: [
+        { name: "api", command: "node server.js" },
+        { name: "admin", command: "node server.js" },
+      ],
+    };
+    const runtimeServices = [
+      { id: "runtime-admin", serviceName: "admin", command: "node server.js", cwd: "/repo", port: null, configIndex: 0 },
+    ];
+
     expect(resolveRuntimeServiceStopTarget({
-      workspaceRuntime,
+      workspaceRuntime: sharedCommandRuntime,
+      runtimeServiceId: null,
+      serviceIndex: 0,
+      runtimeServices,
+    })).toEqual({ scope: "one", runtimeServiceId: null });
+    expect(resolveRuntimeServiceStopTarget({
+      workspaceRuntime: sharedCommandRuntime,
       runtimeServiceId: null,
       serviceIndex: 1,
-      runtimeServices: [
-        { id: "runtime-renamed", serviceName: "worker", command: "pnpm worker", cwd: "/repo", port: null, configIndex: 0 },
-      ],
-    })).toEqual({ scope: "one", runtimeServiceId: null });
+      runtimeServices,
+    })).toEqual({ scope: "one", runtimeServiceId: "runtime-admin" });
   });
 
   it("stops nothing when the given index has no configured service", () => {

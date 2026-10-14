@@ -4,6 +4,7 @@ import { sql } from "drizzle-orm";
 import express from "express";
 import request from "supertest";
 import { beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
+import { selectConfiguredRuntimeServiceRows } from "../services/workspace-runtime-read-model.js";
 
 // A restart or stop that names one service must stop only that service. These
 // tests drive the project and execution workspace routes with two configured
@@ -472,6 +473,43 @@ describe("targeted runtime service stop and restart", () => {
       expect(res.status).toBe(200);
       expect(mockStopExecutionRuntimeServices).toHaveBeenCalledWith(
         expect.objectContaining({ runtimeServiceId: "runtime-site" }),
+      );
+    });
+
+    it("does not trust the config index the read model infers from a shared command", async () => {
+      const sharedCommandRuntime = {
+        services: [
+          { name: "api", command: "node server.js" },
+          { name: "admin", command: "node server.js" },
+        ],
+      };
+      // Only `admin` runs. The read model matches it to `api` by command alone
+      // and gives it config index 0.
+      const runtimeServices = selectConfiguredRuntimeServiceRows(
+        [{
+          ...buildRuntimeService("runtime-admin", "admin", "node server.js"),
+          scopeType: "project_workspace",
+          scopeId: null,
+          reuseKey: null,
+          projectWorkspaceId: null,
+          executionWorkspaceId,
+        }] as never,
+        sharedCommandRuntime,
+      );
+      expect(runtimeServices).toEqual([expect.objectContaining({ id: "runtime-admin", configIndex: 0 })]);
+      const workspace = buildExecutionWorkspace(runtimeServices);
+      workspace.config = { workspaceRuntime: sharedCommandRuntime } as never;
+      mockExecutionWorkspaceService.getById.mockResolvedValue(workspace);
+
+      const apiRes = await request(app).post(`${url}/restart`).send({ serviceIndex: 0 });
+      expect(apiRes.status).toBe(200);
+      expect(mockStopExecutionRuntimeServices).not.toHaveBeenCalled();
+
+      const res = await request(app).post(`${url}/restart`).send({ serviceIndex: 1 });
+      expect(res.status).toBe(200);
+      expect(mockStopExecutionRuntimeServices).toHaveBeenCalledTimes(1);
+      expect(mockStopExecutionRuntimeServices).toHaveBeenCalledWith(
+        expect.objectContaining({ runtimeServiceId: "runtime-admin" }),
       );
     });
 
